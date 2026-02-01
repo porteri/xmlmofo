@@ -1,5 +1,5 @@
 # CMAKE minimum version
-cmake_minimum_required(VERSION 3.13.4)
+cmake_minimum_required(VERSION 4.0)
 
 option(xmlmofo_USE_OpenCoarrays
 "Build XMLmofo with support for linking against OpenCoarray programs" OFF)
@@ -9,7 +9,7 @@ project(xmlmofo LANGUAGES Fortran)
 
 # xmlmofo project version
 set (xmlmofo_VERSION_MAJOR 0)
-set (xmlmofo_VERSION_MINOR 001)
+set (xmlmofo_VERSION_MINOR 002)
 
 # Print project logo, version and tag line
 file(READ ${CMAKE_CURRENT_LIST_DIR}/cmake/XMLmofo-logo.txt xmlmofo_LOGO)
@@ -56,12 +56,12 @@ if ("${CMAKE_Fortran_COMPILER_ID}" MATCHES "Intel")
   if ( "${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
     # Full debug, Fortran 2008 standard, free format (due to automatic build to .f file for testing), Check bounds
     set(CMAKE_Fortran_FLAGS
-      "${prefix}nologo ${prefix}debug${infix}full ${prefix}MP ${prefix}Od ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f15 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
+      "${prefix}nologo ${prefix}debug${infix}full ${prefix}MP ${prefix}Od ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f18 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
        )
   else()
     # Full debug, Fortran 2008 standard, free format (due to automatic build to .f file for testing), Check bounds
     set(CMAKE_Fortran_FLAGS
-      "${prefix}nologo ${prefix}debug${infix}full ${prefix}multiple-processes ${prefix}O0 ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f15 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
+      "${prefix}nologo ${prefix}debug${infix}full ${prefix}multiple-processes ${prefix}O0 ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f18 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
 	   )
   endif()
 elseif("${CMAKE_Fortran_COMPILER_ID}" MATCHES "GNU")
