@@ -23,6 +23,10 @@ jobs:
           compiler: intel
           version: '2025.0'
 
+      - name: Setup Fortran (Linux / Mac install compilers & export FC/CC/CXX)
+        if: runner.os != 'Windows'
+        uses: fortran-lang/setup-fortran@v1.8.1
+
       - name: Ensure cmake present (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
