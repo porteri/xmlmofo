@@ -1,4 +1,4 @@
-# Fortran CI — CMake project, includes Linux / macOS / Windows (MSYS2/MinGW)
+# Fortran CI — CMake project, Linux / macOS use gfortran, Windows uses fortran-lang/setup-fortran@v1 (prefer ifx)
 on: [push, pull_request]
 
 name: Fortran CI
@@ -14,14 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (Windows only)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: >
-            mingw-w64-x86_64-toolchain
-
       - name: Install build tools (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
@@ -33,7 +25,56 @@ jobs:
             brew install gcc cmake
           fi
 
-      - name: Build (CMake)
+      - name: Setup Fortran (Windows)
+        if: runner.os == 'Windows'
+        uses: fortran-lang/setup-fortran@v1
+
+      - name: Build on Windows (prefer ifx, fallback to gfortran)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path CMakeLists.txt)) {
+            Write-Host "No CMakeLists.txt found — skipping build."
+            exit 0
+          }
+
+          # Detect ifx first
+          $ifx = Get-Command ifx -ErrorAction SilentlyContinue
+          if ($ifx) {
+            Write-Host "Using ifx at $($ifx.Path)"
+            $fc = $ifx.Path
+            # Use Visual Studio generator
+            cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_Fortran_COMPILER="$fc" -DCMAKE_BUILD_TYPE=Release
+            cmake --build build --config Release -- /m
+            if (Get-Command ctest -ErrorAction SilentlyContinue) {
+              ctest --test-dir build -C Release --output-on-failure
+            }
+            exit 0
+          }
+
+          # Fallback: try gfortran (should be provided by setup-fortran or MSYS2)
+          $gfortran = Get-Command gfortran -ErrorAction SilentlyContinue
+          if (-not $gfortran) {
+            Write-Error "No ifx and no gfortran found on Windows. Ensure fortran-lang/setup-fortran provides compilers or use a self-hosted runner with ifx."
+            exit 1
+          }
+
+          Write-Host "Using gfortran at $($gfortran.Path)"
+          $fc = $gfortran.Path
+          # Use MinGW/Makefile generator (assumes setup-fortran provided a MinGW toolchain or PATH)
+          # Create build with MinGW Makefiles and build using MSYS2 bash
+          bash -lc "set -euo pipefail
+            mkdir -p build
+            cd build
+            cmake -G \"MinGW Makefiles\" -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER='$fc' ..
+            cmake --build . -- -j\$(nproc || echo 2)
+            if command -v ctest >/dev/null 2>&1; then
+              ctest --output-on-failure
+            fi
+          "
+
+      - name: Build (Linux / macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -43,17 +84,12 @@ jobs:
             exit 0
           fi
 
-          echo "Detected CMake project."
-
-          # Prefer unversioned gfortran if present
+          # Prefer unversioned gfortran, else check common paths
           FC=""
           if command -v gfortran >/dev/null 2>&1; then
             FC="$(command -v gfortran)"
           else
-            # Check common locations and versioned names (expand globs explicitly)
-            for p in /usr/bin/gfortran /usr/local/bin/gfortran /opt/homebrew/bin/gfortran \
-                     /opt/homebrew/bin/gfortran-* /usr/local/bin/gfortran-* /usr/bin/gfortran-* \
-                     /mingw64/bin/gfortran /usr/bin/x86_64-w64-mingw32-gfortran; do
+            for p in /usr/bin/gfortran /usr/local/bin/gfortran /opt/homebrew/bin/gfortran /opt/homebrew/bin/gfortran-*; do
               if [ -x "$p" ]; then
                 FC="$p"
                 break
@@ -63,13 +99,6 @@ jobs:
 
           if [ -z "$FC" ]; then
             echo "Error: No Fortran compiler found (gfortran)."
-            if [ "${{ runner.os }}" = "Linux" ]; then
-              echo "On Linux: add 'sudo apt-get install -y gfortran' to the workflow."
-            elif [ "${{ runner.os }}" = "macOS" ]; then
-              echo "On macOS: 'brew install gcc' should provide gfortran; this workflow already attempts that — check the 'Install build tools' step logs."
-            else
-              echo "On Windows: ensure MSYS2 MinGW toolchain is installed and in PATH."
-            fi
             exit 1
           fi
 
@@ -78,16 +107,8 @@ jobs:
 
           mkdir -p build
           cd build
-
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
-            cmake --build . -- -j$(nproc || echo 2)
-          else
-            cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
-            cmake --build . --parallel
-          fi
-
-          # Run tests with ctest — failures will fail the job
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
+          cmake --build . --parallel
           if command -v ctest >/dev/null 2>&1; then
             ctest --output-on-failure
           fi
