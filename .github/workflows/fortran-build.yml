@@ -23,6 +23,25 @@ jobs:
           compiler: intel
           version: '2025.0'
 
+      - name: Debug Fortran env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "FC=$Env:FC"
+          Write-Host "CC=$Env:CC"
+          Write-Host "CXX=$Env:CXX"
+          if (Get-Command $Env:FC -ErrorAction SilentlyContinue) {
+            & $Env:FC --version | Write-Host
+          } else {
+            Write-Host "FC not executable or not in PATH"
+          }
+
+      - name: ifx probe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $src = @" program hello print *, 'hello' end program hello "@ $src | Out-File -FilePath hello.f90 -Encoding ascii & $Env:FC -o hello.exe hello.f90 if (Test-Path hello.exe) { Write-Host "ifx compiled hello.exe" } else { Write-Error "ifx failed to compile hello.f90" }
+
       - name: Setup Fortran (Linux / Mac install compilers & export FC/CC/CXX)
         if: runner.os != 'Windows'
         uses: fortran-lang/setup-fortran@v1.8.1
