@@ -1,5 +1,4 @@
 SUBMODULE (Misc) Misc_implementation
-    USE Precision, ONLY : i4k, i8k, r8k
     IMPLICIT NONE
 
     CONTAINS

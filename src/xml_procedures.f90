@@ -1,5 +1,4 @@
 SUBMODULE (XML) XML_implementation
-    USE Precision, ONLY : i4k
     IMPLICIT NONE
     !! author: Ian Porter
     !! date: 04/02/2019
