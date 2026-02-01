@@ -38,25 +38,51 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f CMakeLists.txt ]; then
-            echo "Detected CMake project."
-            mkdir -p build
-            cd build
-            if [ "${{ runner.os }}" = "Windows" ]; then
-              # Use the MinGW Makefiles generator inside MSYS2/MinGW environment
-              cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
-              cmake --build . -- -j$(nproc || echo 2)
-            else
-              cmake -DCMAKE_BUILD_TYPE=Release ..
-              # Use portable parallel build flag
-              cmake --build . --parallel
-            fi
 
-            # Run tests with ctest — failures will fail the job
-            if command -v ctest >/dev/null 2>&1; then
-              ctest --output-on-failure
-            fi
-          else
+          if [ ! -f CMakeLists.txt ]; then
             echo "No CMakeLists.txt found — skipping build."
             exit 0
+          fi
+
+          echo "Detected CMake project."
+
+          # Find a Fortran compiler: prefer plain gfortran, fall back to versioned gfortran-*
+          FC=""
+          for candidate in gfortran gfortran-*; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              FC="$(command -v "$candidate")"
+              break
+            fi
+          done
+
+          if [ -z "$FC" ]; then
+            echo "Error: No Fortran compiler found (gfortran)."
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              echo "On Linux: try 'apt-get install gfortran' in the workflow."
+            elif [ "${{ runner.os }}" = "macOS" ]; then
+              echo "On macOS: 'brew install gcc' should provide gfortran; note it may be named gfortran-<ver>."
+            else
+              echo "On Windows: ensure MSYS2 MinGW toolchain is installed and in PATH."
+            fi
+            exit 1
+          fi
+
+          echo "Using Fortran compiler: $FC"
+          $FC --version || true
+
+          mkdir -p build
+          cd build
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # Use the MinGW Makefiles generator inside MSYS2/MinGW environment and pass explicit Fortran compiler
+            cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
+            cmake --build . -- -j$(nproc || echo 2)
+          else
+            cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
+            cmake --build . --parallel
+          fi
+
+          # Run tests with ctest — failures will fail the job
+          if command -v ctest >/dev/null 2>&1; then
+            ctest --output-on-failure
           fi
