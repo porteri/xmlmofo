@@ -1,4 +1,6 @@
-# Fortran CI — CMake project, Linux / macOS use gfortran, Windows uses fortran-lang/setup-fortran@v1 (prefer ifx)
+# Fortran CI — use fortran-lang/setup-fortran@v1 to set compiler IDs (FC, CC, CXX, FPM_*)
+# Linux / macOS: use the FC provided by the action (usually gfortran)
+# Windows: require Intel ifx provided via setup-fortran (no gfortran fallback)
 on: [push, pull_request]
 
 name: Fortran CI
@@ -14,22 +16,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build tools (Linux / macOS)
+      - name: Setup Fortran (install compilers & export FC/CC/CXX)
+        uses: fortran-lang/setup-fortran@v1
+
+      - name: Ensure cmake present (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
             sudo apt-get update
-            sudo apt-get install -y gfortran build-essential cmake
+            sudo apt-get install -y cmake
           else
             brew update
-            brew install gcc cmake
+            brew install cmake
           fi
 
-      - name: Setup Fortran (Windows)
-        if: runner.os == 'Windows'
-        uses: fortran-lang/setup-fortran@v1
-
-      - name: Build on Windows (prefer ifx, fallback to gfortran)
+      - name: Build (Windows — require ifx)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -38,42 +39,33 @@ jobs:
             exit 0
           }
 
-          # Detect ifx first
-          $ifx = Get-Command ifx -ErrorAction SilentlyContinue
-          if ($ifx) {
-            Write-Host "Using ifx at $($ifx.Path)"
-            $fc = $ifx.Path
-            # Use Visual Studio generator
-            cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_Fortran_COMPILER="$fc" -DCMAKE_BUILD_TYPE=Release
-            cmake --build build --config Release -- /m
-            if (Get-Command ctest -ErrorAction SilentlyContinue) {
-              ctest --test-dir build -C Release --output-on-failure
-            }
-            exit 0
-          }
-
-          # Fallback: try gfortran (should be provided by setup-fortran or MSYS2)
-          $gfortran = Get-Command gfortran -ErrorAction SilentlyContinue
-          if (-not $gfortran) {
-            Write-Error "No ifx and no gfortran found on Windows. Ensure fortran-lang/setup-fortran provides compilers or use a self-hosted runner with ifx."
+          # The setup-fortran action exports FC to GITHUB_ENV; read it from the environment.
+          if (-not $Env:FC) {
+            Write-Error "FC not set by setup-fortran; cannot determine Fortran compiler."
             exit 1
           }
 
-          Write-Host "Using gfortran at $($gfortran.Path)"
-          $fc = $gfortran.Path
-          # Use MinGW/Makefile generator (assumes setup-fortran provided a MinGW toolchain or PATH)
-          # Create build with MinGW Makefiles and build using MSYS2 bash
-          bash -lc "set -euo pipefail
-            mkdir -p build
-            cd build
-            cmake -G \"MinGW Makefiles\" -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER='$fc' ..
-            cmake --build . -- -j\$(nproc || echo 2)
-            if command -v ctest >/dev/null 2>&1; then
-              ctest --output-on-failure
-            fi
-          "
+          Write-Host "FC = $Env:FC"
 
-      - name: Build (Linux / macOS)
+          # Require Intel ifx compiler name/path
+          if ($Env:FC -notmatch '(^|[\\\/])ifx($|[^\w])' -and $Env:FC -notmatch 'ifx.exe') {
+            Write-Error "This Windows job requires Intel Fortran 'ifx' as FC. FC='$Env:FC'"
+            Write-Host ""
+            Write-Host "Options:"
+            Write-Host " - Use a self-hosted Windows runner with Intel oneAPI/ifx installed."
+            Write-Host " - Ensure setup-fortran@v1 supplies ifx to the hosted runner (may not be available)."
+            exit 1
+          }
+
+          # Configure and build using Visual Studio generator and explicit Fortran compiler
+          & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$Env:FC"
+          & cmake --build build --config Release -- /m
+
+          if (Get-Command ctest -ErrorAction SilentlyContinue) {
+            & ctest --test-dir build -C Release --output-on-failure
+          }
+
+      - name: Build (Linux / macOS — use FC from setup-fortran)
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -84,30 +76,17 @@ jobs:
             exit 0
           fi
 
-          # Prefer unversioned gfortran, else check common paths
-          FC=""
-          if command -v gfortran >/dev/null 2>&1; then
-            FC="$(command -v gfortran)"
-          else
-            for p in /usr/bin/gfortran /usr/local/bin/gfortran /opt/homebrew/bin/gfortran /opt/homebrew/bin/gfortran-*; do
-              if [ -x "$p" ]; then
-                FC="$p"
-                break
-              fi
-            done
-          fi
-
-          if [ -z "$FC" ]; then
-            echo "Error: No Fortran compiler found (gfortran)."
+          if [ -z "${FC:-}" ]; then
+            echo "FC is not set by setup-fortran. Aborting."
             exit 1
           fi
 
-          echo "Using Fortran compiler: $FC"
-          "$FC" --version || true
+          echo "Using Fortran compiler from setup-fortran: ${FC}"
+          "${FC}" --version || true
 
           mkdir -p build
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="${FC}" ..
           cmake --build . --parallel
           if command -v ctest >/dev/null 2>&1; then
             ctest --output-on-failure
