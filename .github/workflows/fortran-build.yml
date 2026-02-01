@@ -34,7 +34,6 @@ jobs:
           fi
 
       - name: Build (CMake)
-        # use bash so the same script works on macOS/Linux and in MSYS2 bash on Windows
         shell: bash
         run: |
           set -euo pipefail
@@ -46,21 +45,28 @@ jobs:
 
           echo "Detected CMake project."
 
-          # Find a Fortran compiler: prefer plain gfortran, fall back to versioned gfortran-*
+          # Prefer unversioned gfortran if present
           FC=""
-          for candidate in gfortran gfortran-*; do
-            if command -v "$candidate" >/dev/null 2>&1; then
-              FC="$(command -v "$candidate")"
-              break
-            fi
-          done
+          if command -v gfortran >/dev/null 2>&1; then
+            FC="$(command -v gfortran)"
+          else
+            # Check common locations and versioned names (expand globs explicitly)
+            for p in /usr/bin/gfortran /usr/local/bin/gfortran /opt/homebrew/bin/gfortran \
+                     /opt/homebrew/bin/gfortran-* /usr/local/bin/gfortran-* /usr/bin/gfortran-* \
+                     /mingw64/bin/gfortran /usr/bin/x86_64-w64-mingw32-gfortran; do
+              if [ -x "$p" ]; then
+                FC="$p"
+                break
+              fi
+            done
+          fi
 
           if [ -z "$FC" ]; then
             echo "Error: No Fortran compiler found (gfortran)."
             if [ "${{ runner.os }}" = "Linux" ]; then
-              echo "On Linux: try 'apt-get install gfortran' in the workflow."
+              echo "On Linux: add 'sudo apt-get install -y gfortran' to the workflow."
             elif [ "${{ runner.os }}" = "macOS" ]; then
-              echo "On macOS: 'brew install gcc' should provide gfortran; note it may be named gfortran-<ver>."
+              echo "On macOS: 'brew install gcc' should provide gfortran; this workflow already attempts that — check the 'Install build tools' step logs."
             else
               echo "On Windows: ensure MSYS2 MinGW toolchain is installed and in PATH."
             fi
@@ -68,13 +74,12 @@ jobs:
           fi
 
           echo "Using Fortran compiler: $FC"
-          $FC --version || true
+          "$FC" --version || true
 
           mkdir -p build
           cd build
 
           if [ "${{ runner.os }}" = "Windows" ]; then
-            # Use the MinGW Makefiles generator inside MSYS2/MinGW environment and pass explicit Fortran compiler
             cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$FC" ..
             cmake --build . -- -j$(nproc || echo 2)
           else
