@@ -38,31 +38,93 @@ jobs:
             brew install cmake
           fi
 
-      - name: Debug and Build (Windows with Intel ifx via setvars)
+      - name: Debug and Build (Windows with Intel ifx via VS dev + setvars)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # tolerate non-zero status from probes so we can continue to meaningful debug info
           $ErrorActionPreference = 'Continue'
-
-          # Typical setvars location on hosted runners; adjust if different or prefer a secret
-          $setvars = 'C:\Program Files (x86)\Intel\oneAPI\setvars.bat'
-          if (Test-Path $setvars) { Write-Host "Found setvars: $setvars" } else { Write-Host "setvars not found at $setvars" }
 
           Write-Host "FC from setup-fortran: '$Env:FC'"
 
-          # Probe the compiler version in a tolerant way (ignore non-zero exits)
-          try { & $Env:FC --version 2>&1 | Write-Host } catch { try { & $Env:FC -V 2>&1 | Write-Host } catch { try { & $Env:FC /version 2>&1 | Write-Host } catch { Write-Host "ifx version probe failed (non-fatal)" } } }
-
-          if (-not (Test-Path $setvars)) {
-            Write-Error "setvars.bat not found; oneAPI may not be installed on this runner. This job requires Intel oneAPI/ifx."
+          # Resolve full path to FC (ifx)
+          $fcCmd = $null
+          if ($Env:FC) {
+            $fcCmd = (Get-Command $Env:FC -ErrorAction SilentlyContinue).Path
+          }
+          if (-not $fcCmd) {
+            Write-Error "FC not found or not in PATH. FC='$Env:FC'"
             exit 1
           }
+          Write-Host "Resolved FC path: $fcCmd"
 
-          # Build by running setvars and CMake in the same cmd process so Intel environment is applied
-          $cmd = "`"$setvars`" && cmake -S . -B build -G ""Visual Studio 17 2022"" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER=""$Env:FC"" && cmake --build build --config Release -- /m"
-          Write-Host "Running (cmd): $cmd"
-          cmd /c $cmd
+          # Tolerant version probe (ignore non-zero exit)
+          try { & $fcCmd --version 2>&1 | Write-Host } catch { try { & $fcCmd -V 2>&1 | Write-Host } catch { try { & $fcCmd /version 2>&1 | Write-Host } catch { Write-Host "ifx version probe failed (non-fatal)" } } }
+
+          # Find setvars.bat (Intel oneAPI) and VS developer batch (vcvars64.bat or VsDevCmd.bat)
+          $setvarsPaths = @(
+            'C:\Program Files (x86)\Intel\oneAPI\setvars.bat',
+            'C:\Program Files (x86)\Intel\oneAPI\setvars.sh' # unlikely, but keep check
+          )
+          $setvars = $setvarsPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          # Common VC tools paths for hosted runners (try a few)
+          $possibleVs = @(
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat',
+            'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat'
+          )
+          $vsDev = $possibleVs | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $setvars) {
+            Write-Error "Intel setvars.bat not found; oneAPI may not be installed on this runner. Cannot proceed."
+            exit 1
+          } else {
+            Write-Host "Found Intel setvars: $setvars"
+          }
+
+          if ($vsDev) {
+            Write-Host "Found Visual Studio dev script: $vsDev"
+          } else {
+            Write-Host "VsDev/vcvars not found in common locations. Trying vswhere to discover Visual Studio..."
+            $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+            if (Test-Path $vswhere) {
+              $instPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+              if ($instPath) {
+                $cand1 = Join-Path $instPath 'Common7\Tools\VsDevCmd.bat'
+                $cand2 = Join-Path $instPath 'VC\Auxiliary\Build\vcvars64.bat'
+                if (Test-Path $cand1) { $vsDev = $cand1 }
+                elseif (Test-Path $cand2) { $vsDev = $cand2 }
+              }
+            }
+          }
+
+          if (-not $vsDev) {
+            Write-Host "Warning: Visual Studio dev script not found. The Intel compiler may still work if environment is already initialized, but CMake + VS generator may fail."
+          }
+
+          # Build command: call VS dev (if found), then setvars, then run CMake & build.
+          # Use the absolute FC path in -DCMAKE_Fortran_COMPILER so CMake uses the correct executable.
+          $fcQuoted = $fcCmd.Replace('"','""')
+
+          $cmdParts = @()
+          if ($vsDev) {
+            $cmdParts += "call `"$vsDev`""
+          }
+          $cmdParts += "call `"$setvars`""
+          $cmdParts += "cmake -S . -B build -G `"Visual Studio 17 2022`" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER=`"$fcQuoted`""
+          $cmdParts += "cmake --build build --config Release -- /m"
+
+          $cmd = $cmdParts -join " && "
+          Write-Host "Executing cmd sequence:"
+          Write-Host $cmd
+
+          # Run in cmd so the batch files take effect in the same process used by cmake/msbuild
+          $tmp = Join-Path $PWD 'run_build.cmd'
+          $cmd | Out-File -FilePath $tmp -Encoding ascii
+          & $tmp
 
       - name: Build (Linux / macOS — use FC from setup-fortran)
         if: runner.os != 'Windows'
