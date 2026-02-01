@@ -54,20 +54,20 @@ endif()
 if ("${CMAKE_Fortran_COMPILER_ID}" MATCHES "Intel")
   set(intel_compiler true)
   if ( "${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
-    # Full debug, Fortran 2008 standard, free format (due to automatic build to .f file for testing), Check bounds
+    # Full debug, Fortran 2018 standard, free format (due to automatic build to .f file for testing), Check bounds
     set(CMAKE_Fortran_FLAGS
       "${prefix}nologo ${prefix}debug${infix}full ${prefix}MP ${prefix}Od ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f18 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
        )
   else()
-    # Full debug, Fortran 2008 standard, free format (due to automatic build to .f file for testing), Check bounds
+    # Full debug, Fortran 2018 standard, free format (due to automatic build to .f file for testing), Check bounds
     set(CMAKE_Fortran_FLAGS
       "${prefix}nologo ${prefix}debug${infix}full ${prefix}multiple-processes ${prefix}O0 ${prefix}standard-semantics ${prefix}warn${infix}errors ${prefix}stand${infix}f18 ${prefix}debug-parameters${infix}all ${prefix}warn${infix}declarations ${prefix}warn${infix}unused ${prefix}warn${infix}interfaces ${prefix}${Qf}trapuv ${prefix}${Q}init${eq}snan ${prefix}${Q}init${eq}arrays ${prefix}fpe${colon}0 ${prefix}traceback ${prefix}check${colon_}bounds ${prefix}check${colon_}stack ${libs_static} ${prefix}threads ${dbglibs} ${prefix}free"
 	   )
   endif()
 elseif("${CMAKE_Fortran_COMPILER_ID}" MATCHES "GNU")
   set(gnu_compiler true)
-  # Fortran 2008 standard, free format (due to automatic build to .f file for testing)
-  set(CMAKE_Fortran_FLAGS "${prefix}std=f2008 ${prefix}fcheck=all ${prefix}Wall ${prefix}Wno-unused-dummy-argument ${prefix}ffree-form")
+  # Fortran 2018 standard, free format (due to automatic build to .f file for testing)
+  set(CMAKE_Fortran_FLAGS "${prefix}std=f2018 ${prefix}fcheck=all ${prefix}Wall ${prefix}Wno-unused-dummy-argument ${prefix}ffree-form")
 else()
   message(WARNING
     "\n"
