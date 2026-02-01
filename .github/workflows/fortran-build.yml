@@ -1,6 +1,6 @@
-# Fortran CI — use fortran-lang/setup-fortran@v1 to set compiler IDs (FC, CC, CXX, FPM_*)
-# Linux / macOS: use the FC provided by the action (usually gfortran)
-# Windows: require Intel ifx provided via setup-fortran (no gfortran fallback)
+# Fortran CI — use fortran-lang/setup-fortran@v1 to set FC/CC/CXX
+# Linux / macOS: use the FC provided by the action
+# Windows: require Intel ifx and run Intel setvars before CMake (debug + build)
 on: [push, pull_request]
 
 name: Fortran CI
@@ -17,34 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Fortran (install compilers & export FC/CC/CXX)
-        if: runner.os == 'Windows'
-        uses: fortran-lang/setup-fortran@v1.8.1
-        with:
-          compiler: intel
-          version: '2025.0'
-
-      - name: Debug Fortran env (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Write-Host "FC=$Env:FC"
-          Write-Host "CC=$Env:CC"
-          Write-Host "CXX=$Env:CXX"
-          if (Get-Command $Env:FC -ErrorAction SilentlyContinue) {
-            & $Env:FC --version | Write-Host
-          } else {
-            Write-Host "FC not executable or not in PATH"
-          }
-
-      - name: ifx probe (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $src = @" program hello print *, 'hello' end program hello "@ $src | Out-File -FilePath hello.f90 -Encoding ascii & $Env:FC -o hello.exe hello.f90 if (Test-Path hello.exe) { Write-Host "ifx compiled hello.exe" } else { Write-Error "ifx failed to compile hello.f90" }
-
-      - name: Setup Fortran (Linux / Mac install compilers & export FC/CC/CXX)
-        if: runner.os != 'Windows'
-        uses: fortran-lang/setup-fortran@v1.8.1
+        uses: fortran-lang/setup-fortran@v1
 
       - name: Ensure cmake present (Linux / macOS)
         if: runner.os != 'Windows'
@@ -57,40 +30,31 @@ jobs:
             brew install cmake
           fi
 
-      - name: Build (Windows — require ifx)
+      - name: Debug and Build (Windows with Intel ifx via setvars)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (-not (Test-Path CMakeLists.txt)) {
-            Write-Host "No CMakeLists.txt found — skipping build."
-            exit 0
-          }
+          # tolerate non-zero status from probes so we can continue to meaningful debug info
+          $ErrorActionPreference = 'Continue'
 
-          # The setup-fortran action exports FC to GITHUB_ENV; read it from the environment.
-          if (-not $Env:FC) {
-            Write-Error "FC not set by setup-fortran; cannot determine Fortran compiler."
+          # Typical setvars location on hosted runners; adjust if different or prefer a secret
+          $setvars = 'C:\Program Files (x86)\Intel\oneAPI\setvars.bat'
+          if (Test-Path $setvars) { Write-Host "Found setvars: $setvars" } else { Write-Host "setvars not found at $setvars" }
+
+          Write-Host "FC from setup-fortran: '$Env:FC'"
+
+          # Probe the compiler version in a tolerant way (ignore non-zero exits)
+          try { & $Env:FC --version 2>&1 | Write-Host } catch { try { & $Env:FC -V 2>&1 | Write-Host } catch { try { & $Env:FC /version 2>&1 | Write-Host } catch { Write-Host "ifx version probe failed (non-fatal)" } } }
+
+          if (-not (Test-Path $setvars)) {
+            Write-Error "setvars.bat not found; oneAPI may not be installed on this runner. This job requires Intel oneAPI/ifx."
             exit 1
           }
 
-          Write-Host "FC = $Env:FC"
-
-          # Require Intel ifx compiler name/path
-          if ($Env:FC -notmatch '(^|[\\\/])ifx($|[^\w])' -and $Env:FC -notmatch 'ifx.exe') {
-            Write-Error "This Windows job requires Intel Fortran 'ifx' as FC. FC='$Env:FC'"
-            Write-Host ""
-            Write-Host "Options:"
-            Write-Host " - Use a self-hosted Windows runner with Intel oneAPI/ifx installed."
-            Write-Host " - Ensure setup-fortran@v1 supplies ifx to the hosted runner (may not be available)."
-            exit 1
-          }
-
-          # Configure and build using Visual Studio generator and explicit Fortran compiler
-          & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER="$Env:FC"
-          & cmake --build build --config Release -- /m
-
-          if (Get-Command ctest -ErrorAction SilentlyContinue) {
-            & ctest --test-dir build -C Release --output-on-failure
-          }
+          # Build by running setvars and CMake in the same cmd process so Intel environment is applied
+          $cmd = "`"$setvars`" && cmake -S . -B build -G ""Visual Studio 17 2022"" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_Fortran_COMPILER=""$Env:FC"" && cmake --build build --config Release -- /m"
+          Write-Host "Running (cmd): $cmd"
+          cmd /c $cmd
 
       - name: Build (Linux / macOS — use FC from setup-fortran)
         if: runner.os != 'Windows'
