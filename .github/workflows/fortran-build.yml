@@ -1,0 +1,62 @@
+# Fortran CI — CMake project, includes Linux / macOS / Windows (MSYS2/MinGW)
+on: [push, pull_request]
+
+name: Fortran CI
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (Windows only)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >
+            mingw-w64-x86_64-toolchain
+
+      - name: Install build tools (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y gfortran build-essential cmake
+          else
+            brew update
+            brew install gcc cmake
+          fi
+
+      - name: Build (CMake)
+        # use bash so the same script works on macOS/Linux and in MSYS2 bash on Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            echo "Detected CMake project."
+            mkdir -p build
+            cd build
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              # Use the MinGW Makefiles generator inside MSYS2/MinGW environment
+              cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+              cmake --build . -- -j$(nproc || echo 2)
+            else
+              cmake -DCMAKE_BUILD_TYPE=Release ..
+              # Use portable parallel build flag
+              cmake --build . --parallel
+            fi
+
+            # Run tests with ctest — failures will fail the job
+            if command -v ctest >/dev/null 2>&1; then
+              ctest --output-on-failure
+            fi
+          else
+            echo "No CMakeLists.txt found — skipping build."
+            exit 0
+          fi
